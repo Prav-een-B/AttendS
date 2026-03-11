@@ -1,10 +1,9 @@
 # AttendS — Attendance Sheet OCR + CNN Digit Recognizer
 
-> **100% local · No API keys · No internet required**
 
 Extracts roll numbers and student names from attendance sheet photos using:
 - **OpenCV** — image preprocessing & table detection
-- **CNN** (`MYmod.keras`) — handwritten digit recognition (~98% MNIST accuracy)
+- **CNN** — handwritten digit recognition (~98% MNIST accuracy)
 - **Tesseract** — student name OCR
 - **openpyxl** — formatted Excel output
 
