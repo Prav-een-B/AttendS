@@ -72,6 +72,3 @@ attendx/
 └── templates/
     └── index.html
 ```
-
-## License
-MIT
