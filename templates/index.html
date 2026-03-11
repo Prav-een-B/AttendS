@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AttendX — Local OCR Attendance Extractor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,700;1,9..144,400&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --ink:      #0e0e0e;
+      --paper:    #f5f0e8;
+      --cream:    #ede8df;
+      --rust:     #b84a2b;
+      --teal:     #1a6b5a;
+      --gold:     #c9882f;
+      --muted:    #7a7060;
+      --border:   #cfc9bc;
+      --shadow:   rgba(14,14,14,0.12);
+      --present:  #166534;
+      --absent:   #991b1b;
+      --late:     #92400e;
+    }
+
+    body {
+      font-family: 'IBM Plex Mono', monospace;
+      background: var(--paper);
+      color: var(--ink);
+      min-height: 100vh;
+    }
+
+    /* ─── TEXTURE OVERLAY ──────────────────────────────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+      opacity: 1;
+    }
+
+    .page { position: relative; z-index: 1; max-width: 860px; margin: 0 auto; padding: 52px 24px 96px; }
+
+    /* ─── HEADER ───────────────────────────────────────────────────────────── */
+    header { margin-bottom: 56px; }
+
+    .stamp {
+      display: inline-block;
+      border: 2px solid var(--rust);
+      color: var(--rust);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .2em;
+      padding: 4px 12px;
+      border-radius: 2px;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+      transform: rotate(-1deg);
+    }
+
+    h1 {
+      font-family: 'Fraunces', serif;
+      font-size: clamp(3rem, 8vw, 5.5rem);
+      font-weight: 700;
+      line-height: .95;
+      letter-spacing: -.02em;
+      color: var(--ink);
+      margin-bottom: 12px;
+    }
+    h1 span { color: var(--rust); font-style: italic; }
+
+    .tagline {
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: .06em;
+      max-width: 420px;
+      line-height: 1.8;
+    }
+
+    /* ─── DIVIDER ──────────────────────────────────────────────────────────── */
+    .rule {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 32px 0;
+    }
+
+    /* ─── SECTION LABEL ────────────────────────────────────────────────────── */
+    .section-label {
+      font-size: 10px;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+
+    /* ─── UPLOAD ZONE ──────────────────────────────────────────────────────── */
+    #drop-zone {
+      position: relative;
+      border: 1.5px dashed var(--border);
+      border-radius: 4px;
+      padding: 52px 24px;
+      text-align: center;
+      cursor: pointer;
+      background: var(--cream);
+      transition: border-color .2s, background .2s;
+    }
+    #drop-zone:hover, #drop-zone.over {
+      border-color: var(--teal);
+      background: #f0f4f2;
+    }
+    #drop-zone input {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+
+    .upload-glyph {
+      font-size: 40px;
+      display: block;
+      margin-bottom: 16px;
+      filter: grayscale(1) opacity(.5);
+    }
+    .upload-title {
+      font-family: 'Fraunces', serif;
+      font-size: 1.25rem;
+      font-weight: 300;
+      color: var(--ink);
+      margin-bottom: 6px;
+    }
+    .upload-hint { font-size: 11px; color: var(--muted); letter-spacing: .05em; }
+
+    .fmt-row {
+      display: flex; flex-wrap: wrap; justify-content: center; gap: 6px;
+      margin-top: 18px;
+    }
+    .fmt { font-size: 10px; letter-spacing: .1em; color: var(--muted);
+           border: 1px solid var(--border); padding: 2px 8px; border-radius: 2px; }
+
+    /* ─── FILE LIST ────────────────────────────────────────────────────────── */
+    #file-list { margin-top: 16px; display: flex; flex-direction: column; gap: 6px; }
+
+    .file-item {
+      display: flex; align-items: center; justify-content: space-between;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 9px 14px;
+      background: var(--cream);
+      animation: pop .18s ease;
+    }
+    @keyframes pop { from{opacity:0;transform:scale(.97)} to{opacity:1;transform:none} }
+
+    .file-info { display: flex; flex-direction: column; gap: 2px; }
+    .file-name { font-size: 12px; font-weight: 500; color: var(--teal); }
+    .file-size { font-size: 10px; color: var(--muted); }
+    .file-rm {
+      background: none; border: none; cursor: pointer;
+      color: var(--muted); font-size: 14px; padding: 2px 6px;
+      transition: color .15s;
+    }
+    .file-rm:hover { color: var(--rust); }
+
+    /* ─── BUTTON ───────────────────────────────────────────────────────────── */
+    #run-btn {
+      width: 100%; margin-top: 20px;
+      padding: 15px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--paper);
+      background: var(--ink);
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      transition: background .2s, transform .15s;
+    }
+    #run-btn:hover:not(:disabled) { background: #2a2a2a; transform: translateY(-1px); }
+    #run-btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+
+    /* ─── PROGRESS ─────────────────────────────────────────────────────────── */
+    #progress-wrap { display: none; margin-top: 24px; }
+    .progress-track {
+      height: 3px; background: var(--border); border-radius: 2px; overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--teal), var(--gold));
+      width: 0%;
+      transition: width .5s ease;
+      border-radius: 2px;
+    }
+    .progress-msg {
+      font-size: 11px; color: var(--muted); margin-top: 8px; letter-spacing: .04em;
+    }
+
+    /* ─── RESULTS ──────────────────────────────────────────────────────────── */
+    #results-wrap { display: none; margin-top: 32px; }
+
+    .result-top {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 12px;
+      margin-bottom: 24px;
+    }
+    .result-heading {
+      font-family: 'Fraunces', serif;
+      font-size: 1.5rem;
+      font-weight: 700;
+    }
+
+    .dl-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 20px;
+      background: var(--teal);
+      color: #fff;
+      border: none; border-radius: 3px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px; font-weight: 600;
+      letter-spacing: .06em; text-transform: uppercase;
+      text-decoration: none; cursor: pointer;
+      transition: background .2s, transform .15s;
+    }
+    .dl-btn:hover { background: #145246; transform: translateY(-1px); }
+
+    /* ─── ACCORDION ────────────────────────────────────────────────────────── */
+    .sheet-card {
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      margin-bottom: 14px;
+      overflow: hidden;
+    }
+    .sheet-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px;
+      background: var(--cream);
+      cursor: pointer;
+      user-select: none;
+      transition: background .15s;
+    }
+    .sheet-head:hover { background: #e8e2d6; }
+
+    .sh-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .sh-title { font-weight: 600; font-size: 13px; }
+    .pill {
+      font-size: 10px; font-weight: 600; letter-spacing: .06em;
+      padding: 2px 8px; border-radius: 100px;
+    }
+    .pill-p { background: #dcfce7; color: var(--present); }
+    .pill-a { background: #fee2e2; color: var(--absent); }
+    .pill-c { background: #e0f2fe; color: #0369a1; }
+    .chevron { font-size: 12px; color: var(--muted); transition: transform .25s; }
+    .sheet-card.open .chevron { transform: rotate(180deg); }
+
+    .sheet-body { display: none; padding: 18px; border-top: 1px solid var(--border); }
+    .sheet-card.open .sheet-body { display: block; }
+
+    .meta-grid {
+      display: flex; flex-wrap: wrap; gap: 20px;
+      padding: 12px 14px;
+      background: #f7f3ec;
+      border-radius: 3px;
+      margin-bottom: 16px;
+      font-size: 11px;
+    }
+    .meta-kv span { color: var(--muted); }
+
+    /* ─── TABLE ────────────────────────────────────────────────────────────── */
+    .tbl-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead tr { background: #ede8df; }
+    th {
+      padding: 9px 12px; text-align: left; font-weight: 600;
+      font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+      color: var(--muted); border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    td {
+      padding: 8px 12px;
+      border-bottom: 1px solid #ece7de;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f0ece3; }
+
+    .s-present { color: var(--present); font-weight: 600; }
+    .s-absent  { color: var(--absent);  font-weight: 600; }
+    .s-late    { color: var(--late);    font-weight: 600; }
+    .s-unknown { color: var(--muted); }
+
+    /* ─── ERRORS ───────────────────────────────────────────────────────────── */
+    .err-box {
+      border: 1px solid #fca5a5;
+      background: #fff5f5;
+      border-radius: 3px;
+      padding: 14px;
+      margin-top: 12px;
+    }
+    .err-box p { font-size: 11px; color: #b91c1c; margin-bottom: 6px; font-weight: 600; }
+    .err-box li { font-size: 11px; color: #991b1b; list-style: none; padding: 2px 0; }
+
+    /* ─── HOW IT WORKS ─────────────────────────────────────────────────────── */
+    .how { margin-top: 56px; }
+    .how-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 16px;
+    }
+    .how-step {
+      background: var(--cream);
+      padding: 24px 20px;
+    }
+    .how-step:hover { background: #e8e2d6; }
+    .how-num {
+      font-family: 'Fraunces', serif;
+      font-size: 2.5rem;
+      font-weight: 700;
+      color: var(--border);
+      line-height: 1;
+      margin-bottom: 10px;
+    }
+    .how-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+    .how-desc  { font-size: 11px; color: var(--muted); line-height: 1.7; }
+
+    /* ─── TECH BADGES ──────────────────────────────────────────────────────── */
+    .tech-row {
+      display: flex; flex-wrap: wrap; gap: 8px;
+      margin-top: 28px;
+    }
+    .tech-badge {
+      font-size: 10px; letter-spacing: .1em;
+      border: 1px solid var(--border);
+      padding: 4px 12px; border-radius: 2px;
+      color: var(--muted);
+    }
+    .tech-badge strong { color: var(--ink); }
+
+    @media (max-width: 600px) {
+      h1 { font-size: 2.8rem; }
+      .page { padding: 32px 16px 64px; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ── Header ─────────────────────────────────────────────────────────── -->
+  <header>
+    <div class="stamp">100% Local · No API · No Internet</div>
+    <h1>Attend<span>X</span></h1>
+    <p class="tagline">Upload photos of attendance sheets.<br>
+       OpenCV + Tesseract OCR extracts every roll number &amp; name.<br>
+       Download as Excel instantly — all on your machine.</p>
+  </header>
+
+  <hr class="rule"/>
+
+  <!-- ── Upload ─────────────────────────────────────────────────────────── -->
+  <div class="section-label">01 — Upload Sheets</div>
+
+  <div id="drop-zone">
+    <input type="file" id="file-input" multiple accept=".jpg,.jpeg,.png,.bmp,.tiff,.tif,.webp,.pdf"/>
+    <span class="upload-glyph">📋</span>
+    <div class="upload-title">Drop attendance sheet images here</div>
+    <div class="upload-hint">or click to browse · multiple files supported</div>
+    <div class="fmt-row">
+      <span class="fmt">JPG</span><span class="fmt">PNG</span>
+      <span class="fmt">BMP</span><span class="fmt">TIFF</span>
+      <span class="fmt">WEBP</span><span class="fmt">PDF</span>
+    </div>
+  </div>
+
+  <div id="file-list"></div>
+
+  <button id="run-btn" disabled>⚙ Process with Local OCR</button>
+
+  <!-- ── Progress ───────────────────────────────────────────────────────── -->
+  <div id="progress-wrap">
+    <hr class="rule"/>
+    <div class="section-label">Processing…</div>
+    <div class="progress-track"><div class="progress-fill" id="prog-fill"></div></div>
+    <div class="progress-msg" id="prog-msg">Initialising pipeline…</div>
+  </div>
+
+  <!-- ── Results ────────────────────────────────────────────────────────── -->
+  <div id="results-wrap">
+    <hr class="rule"/>
+    <div class="result-top">
+      <div>
+        <div class="section-label">02 — Results</div>
+        <div class="result-heading">Extraction Complete ✓</div>
+      </div>
+      <a id="dl-link" class="dl-btn" href="#" download>↓ Download Excel</a>
+    </div>
+    <div id="sheets-out"></div>
+    <div id="errors-out"></div>
+  </div>
+
+  <!-- ── How it works ───────────────────────────────────────────────────── -->
+  <div class="how">
+    <hr class="rule"/>
+    <div class="section-label">How it works — local pipeline</div>
+    <div class="how-grid">
+      <div class="how-step">
+        <div class="how-num">01</div>
+        <div class="how-title">Preprocess</div>
+        <div class="how-desc">OpenCV deskews, denoises &amp; binarizes the photo using adaptive thresholding.</div>
+      </div>
+      <div class="how-step">
+        <div class="how-num">02</div>
+        <div class="how-title">Table Detection</div>
+        <div class="how-desc">Morphological ops find row &amp; column lines. Falls back to horizontal-band segmentation for hand-ruled sheets.</div>
+      </div>
+      <div class="how-step">
+        <div class="how-num">03</div>
+        <div class="how-title">Tesseract OCR</div>
+        <div class="how-desc">Each cell is individually OCR'd with optimised PSM modes for names, numbers, and status marks.</div>
+      </div>
+      <div class="how-step">
+        <div class="how-num">04</div>
+        <div class="how-title">Parse &amp; Export</div>
+        <div class="how-desc">Heuristics map columns to roll/name/status. Output is a formatted, colour-coded Excel file.</div>
+      </div>
+    </div>
+    <div class="tech-row">
+      <span class="tech-badge"><strong>OpenCV</strong> · image processing</span>
+      <span class="tech-badge"><strong>Tesseract</strong> · OCR engine</span>
+      <span class="tech-badge"><strong>NumPy / SciPy</strong> · numerics</span>
+      <span class="tech-badge"><strong>Pillow</strong> · image I/O</span>
+      <span class="tech-badge"><strong>openpyxl</strong> · Excel output</span>
+      <span class="tech-badge"><strong>Flask</strong> · web server</span>
+    </div>
+  </div>
+
+</div><!-- /page -->
+
+<script>
+const fileInput  = document.getElementById('file-input');
+const dropZone   = document.getElementById('drop-zone');
+const fileList   = document.getElementById('file-list');
+const runBtn     = document.getElementById('run-btn');
+const progWrap   = document.getElementById('progress-wrap');
+const progFill   = document.getElementById('prog-fill');
+const progMsg    = document.getElementById('prog-msg');
+const resultsWrap = document.getElementById('results-wrap');
+const sheetsOut  = document.getElementById('sheets-out');
+const errorsOut  = document.getElementById('errors-out');
+const dlLink     = document.getElementById('dl-link');
+
+let files = [];
+
+const fmtSize = b => b < 1024*1024 ? (b/1024).toFixed(1)+' KB' : (b/(1024*1024)).toFixed(1)+' MB';
+
+function renderFiles() {
+  fileList.innerHTML = '';
+  files.forEach((f, i) => {
+    const d = document.createElement('div');
+    d.className = 'file-item';
+    d.innerHTML = `<div class="file-info">
+      <div class="file-name">${f.name}</div>
+      <div class="file-size">${fmtSize(f.size)}</div>
+    </div>
+    <button class="file-rm" data-i="${i}" title="Remove">✕</button>`;
+    fileList.appendChild(d);
+  });
+  runBtn.disabled = files.length === 0;
+}
+
+fileList.addEventListener('click', e => {
+  const b = e.target.closest('[data-i]');
+  if (b) { files.splice(+b.dataset.i, 1); renderFiles(); }
+});
+
+fileInput.addEventListener('change', () => {
+  files = [...files, ...Array.from(fileInput.files)];
+  fileInput.value = '';
+  renderFiles();
+});
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('over');
+  files = [...files, ...Array.from(e.dataTransfer.files)];
+  renderFiles();
+});
+
+// Smooth progress animation
+let progTarget = 0, progCurrent = 0, rafId = null;
+function setProgress(pct, msg) {
+  progTarget = pct;
+  progMsg.textContent = msg;
+  if (!rafId) animProg();
+}
+function animProg() {
+  progCurrent += (progTarget - progCurrent) * 0.08;
+  if (Math.abs(progTarget - progCurrent) < 0.3) progCurrent = progTarget;
+  progFill.style.width = progCurrent.toFixed(1) + '%';
+  if (progCurrent < progTarget) rafId = requestAnimationFrame(animProg);
+  else rafId = null;
+}
+
+function statusClass(s) {
+  const m = {Present:'s-present', Absent:'s-absent', Late:'s-late'};
+  return m[s] || 's-unknown';
+}
+
+function renderSheets(sheets) {
+  sheetsOut.innerHTML = '';
+  sheets.forEach((sh, idx) => {
+    const stats = sh.stats || {};
+    const card = document.createElement('div');
+    card.className = 'sheet-card';
+    card.innerHTML = `
+      <div class="sheet-head">
+        <div class="sh-left">
+          <span class="sh-title">${sh.source || 'Sheet '+(idx+1)}</span>
+          ${sh.title ? `<span class="sh-title" style="color:var(--muted);font-weight:400">— ${sh.title}</span>` : ''}
+          <span class="pill pill-p">✓ ${stats.present||0} present</span>
+          <span class="pill pill-a">✗ ${stats.absent||0} absent</span>
+          <span class="pill pill-c">${sh.confidence||'?'} conf.</span>
+        </div>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="sheet-body">
+        <div class="meta-grid">
+          ${sh.date    ? `<div class="meta-kv"><span>Date </span>${sh.date}</div>` : ''}
+          ${sh.subject ? `<div class="meta-kv"><span>Subject </span>${sh.subject}</div>` : ''}
+          <div class="meta-kv"><span>Total </span>${stats.total||0} records</div>
+          <div class="meta-kv"><span>Late </span>${stats.late||0}</div>
+          <div class="meta-kv"><span>Unknown </span>${stats.unknown||0}</div>
+        </div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr>
+              <th>#</th><th>Roll Number</th><th>Name</th><th>Status</th>
+            </tr></thead>
+            <tbody>
+              ${(sh.records||[]).map((r,ri) => `
+                <tr>
+                  <td>${ri+1}</td>
+                  <td>${r.roll_number||'—'}</td>
+                  <td>${r.name||'—'}</td>
+                  <td class="${statusClass(r.status)}">${r.status||'?'}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+
+    card.querySelector('.sheet-head').addEventListener('click', () => {
+      card.classList.toggle('open');
+    });
+    card.classList.add('open'); // open first by default
+    sheetsOut.appendChild(card);
+  });
+}
+
+function renderErrors(errs) {
+  if (!errs || !errs.length) return;
+  errorsOut.innerHTML = `<div class="err-box">
+    <p>Warnings / Errors</p>
+    <ul>${errs.map(e => `<li>⚠ ${e}</li>`).join('')}</ul>
+  </div>`;
+}
+
+runBtn.addEventListener('click', async () => {
+  if (!files.length) return;
+
+  // Reset
+  resultsWrap.style.display = 'none';
+  sheetsOut.innerHTML = ''; errorsOut.innerHTML = '';
+  progWrap.style.display = 'block';
+  progCurrent = 0; progTarget = 0;
+  progFill.style.width = '0%';
+  runBtn.disabled = true;
+
+  const fd = new FormData();
+  files.forEach(f => fd.append('files', f));
+
+  setProgress(15, 'Uploading images to local server…');
+
+  try {
+    // Fake progress while waiting for server
+    const fakeTimer = setInterval(() => {
+      if (progTarget < 80) setProgress(progTarget + 5, progTarget < 40
+        ? 'OpenCV preprocessing — deskew & threshold…'
+        : progTarget < 60
+          ? 'Detecting table structure…'
+          : 'Tesseract OCR reading cells…');
+    }, 600);
+
+    const res  = await fetch('/process', { method: 'POST', body: fd });
+    clearInterval(fakeTimer);
+    setProgress(92, 'Parsing structured data & writing Excel…');
+
+    const data = await res.json();
+    setProgress(100, 'Done!');
+
+    setTimeout(() => {
+      progWrap.style.display = 'none';
+      resultsWrap.style.display = 'block';
+      if (data.success) {
+        dlLink.href = `/download/${data.filename}`;
+        dlLink.download = data.filename;
+        renderSheets(data.sheets);
+        renderErrors(data.errors);
+      } else {
+        errorsOut.innerHTML = `<div class="err-box"><p>Error</p><ul><li>${data.error}</li>${(data.details||[]).map(d=>`<li>${d}</li>`).join('')}</ul></div>`;
+      }
+      runBtn.disabled = false;
+    }, 500);
+
+  } catch (err) {
+    clearInterval();
+    progWrap.style.display = 'none';
+    errorsOut.innerHTML = `<div class="err-box"><p>Network error</p><ul><li>${err.message}</li></ul></div>`;
+    resultsWrap.style.display = 'block';
+    runBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
