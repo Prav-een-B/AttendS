@@ -1,4 +1,4 @@
-# AttendX — Attendance Sheet OCR + CNN Digit Recognizer
+# AttendS — Attendance Sheet OCR + CNN Digit Recognizer
 
 > **100% local · No API keys · No internet required**
 
