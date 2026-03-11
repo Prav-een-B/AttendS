@@ -23,13 +23,7 @@ brew install tesseract               # macOS
 pip install -r requirements.txt
 ```
 
-### 3. Add the CNN model
-Download `MYmod.keras` from [Prav-een-B/Recognising-Handwritten-Digits](https://github.com/Prav-een-B/Recognising-Handwritten-Digits) and place it at:
-```
-models/MYmod.keras
-```
-
-### 4. Run
+### 3. Run
 ```bash
 python app.py
 # Open http://localhost:5000
@@ -68,7 +62,7 @@ attendx/
 ├── app.py
 ├── requirements.txt
 ├── models/
-│   └── MYmod.keras            ← add this
+│   └── MYmod.keras            
 ├── pipeline/
 │   ├── preprocess.py
 │   ├── table_detector.py
