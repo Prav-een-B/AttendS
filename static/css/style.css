@@ -1,0 +1,74 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 30px;
+    background: #f0f0f0;
+}
+
+h1 {
+    color: #333;
+}
+
+.box {
+    background: white;
+    border: 1px solid #ccc;
+    padding: 20px;
+    margin-bottom: 20px;
+    width: 500px;
+}
+
+input[type="file"] {
+    margin: 10px 0;
+    display: block;
+}
+
+button {
+    background: #4CAF50;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+button:hover {
+    background: #45a049;
+}
+
+#status {
+    margin-top: 10px;
+    color: #555;
+}
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+    margin-top: 10px;
+}
+
+th, td {
+    border: 1px solid #ccc;
+    padding: 8px;
+    text-align: left;
+}
+
+th {
+    background: #eee;
+}
+
+#results-box {
+    width: 100%;
+}
+
+#download-btn {
+    background: #2196F3;
+    margin-top: 10px;
+    display: none;
+}
+
+#download-btn:hover {
+    background: #1976D2;
+}
+
+.cnn-status {
+    font-size: 13px;
+}
